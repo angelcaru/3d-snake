@@ -20,3 +20,10 @@ jobs:
           sudo apt-get install emscripten
           cc -o nob nob.c
           ./nob -t web
+
+              - name: Upload GitHub Pages artifact
+  deploy:
+    uses: actions/upload-pages-artifact@v3.0.1
+    with:
+      path: /build
+          
