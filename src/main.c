@@ -6,6 +6,10 @@
 #include "raymath.h"
 #include "rcamera.h"
 
+#ifdef PLATFORM_WEB
+    #include <emscripten/emscripten.h>
+#endif // PLATFORM_WEB
+
 #include <time.h>
 
 #define MACRO_VAR(name) _##name##__LINE__
@@ -117,131 +121,168 @@ Vector3 last_dir(Dir_Queue dir_queue, const Snake *snake) {
     return dir_queue.count == 0 ? snake->dir : dir_queue.items[dir_queue.count - 1];
 }
 
-#define BACKGROUND_COLOR SKYBLUE
-#define GRID_COLOR WHITE
-#define SNAKE_COLOR RED
-#define FRUIT_COLOR BLUE
+typedef struct {
+    Snake snake;
+    Vector3 fruit;
+    Camera camera;
+    Dir_Queue dir_queue;
+    int score;
+    float time;
+    bool game_over;
+} Game;
 
-int main(void) {
-    static Snake snake = { .dir = {-1, 0, 0}, };
+void game_init(Game *game) {
+    memset(game, 0, sizeof(*game));
+    game->snake = (Snake) { .dir = {-1, 0, 0} };
     for (int i = 0; i < 4; i++) {
-        snake_push_head(&snake, (Vector3) { GRID_SIZE / 2 + 4 - i, GRID_SIZE / 2, GRID_SIZE / 2 });
+        snake_push_head(&game->snake, (Vector3) { GRID_SIZE / 2 + 4 - i, GRID_SIZE / 2, GRID_SIZE / 2 });
     }
-
     SetRandomSeed(time(0));
-    Vector3 fruit = gen_fruit();
-
-    InitWindow(640, 480, "3D Snake Game");
-
-    Camera camera = {
+    game->fruit = gen_fruit();
+    game->camera = (Camera) {
         .position = { 0, GRID_SIZE / 2 + 2, GRID_SIZE / 2 + 2 },
         .target = Vector3Zero(),
         .up = { 0.0f, 1.0f, 0.0f },
         .fovy = 100.0f,
         .projection = CAMERA_PERSPECTIVE,
     };
+}
 
-    DisableCursor();
+#define BACKGROUND_COLOR SKYBLUE
+#define GRID_COLOR WHITE
+#define SNAKE_COLOR RED
+#define FRUIT_COLOR BLUE
 
-    Dir_Queue dir_queue = {0};
-
-    int score = 0;
-    float time = 0;
-    while (!WindowShouldClose()) {
-        // TODO: better camera controls that don't conflict with snake WASD
-        if (IsKeyDown(KEY_SPACE)) UpdateCamera(&camera, CAMERA_ORBITAL);
-
-        if (IsKeyPressed(KEY_F)) ToggleBorderlessWindowed();
-
-        Vector3 new_dir = get_keyboard_dir();
-        if (!vector3_near_eq(new_dir, Vector3Zero())) {
-            Vector3 last = last_dir(dir_queue, &snake);
-            if (!vector3_near_eq(new_dir, last) && !vector3_near_eq(new_dir, Vector3Scale(last, -1))) {
-                da_append(&dir_queue, new_dir);
-            }
-        }
-
-        time += GetFrameTime();
-        if (time >= 0.5) {
-            time = 0;
-
-            if (dir_queue.count > 0) {
-                Vector3 new_dir = dir_queue_pop(&dir_queue);
-                snake.dir = new_dir;
-            }
-
-            if (!snake_update(&snake)) break;
-            if (vector3_near_eq(snake_head(&snake), fruit)) {
-                score++;
-                snake_grow(&snake);
-                do {
-                    fruit = gen_fruit();
-                } while (snake_contains(&snake, fruit));
-            }
-        }
-
+void game_update(Game *game) {
+    if (IsKeyPressed(KEY_F)) ToggleBorderlessWindowed();
+    if (game->game_over) {
         Drawing {
-            ClearBackground(BACKGROUND_COLOR);
-            Mode3D(camera) {
-                // Main grid
-                for (int x = 0; x < GRID_SIZE; x++) {
-                    for (int y = 0; y < GRID_SIZE; y++) {
-                        for (int z = 0; z < GRID_SIZE; z++) {
-                            Vector3 pos = {x, y, z};
-                            Vector3 draw_pos = Vector3SubtractValue(pos, GRID_SIZE / 2);
-                            //DrawCubeWires(draw_pos, 1, 1, 1, GRID_COLOR);
+            ClearBackground(RED);
+            int width = GetScreenWidth();
+            int height = GetScreenHeight();
 
-                            if (vector3_near_eq(pos, fruit)) {
-                                DrawCube(draw_pos, 1, 1, 1, FRUIT_COLOR);
-                            } else if (snake_contains(&snake, pos)) {
-                                DrawCube(draw_pos, 1, 1, 1, SNAKE_COLOR);
-                            }
-                        }
-                    }
-                }
-
-                // """Shadows"""
-                for (int x = 0; x < GRID_SIZE; x++) {
-                    for (int y = 0; y < GRID_SIZE; y++) {
-                        for (int z = 0; z < GRID_SIZE; z++) {
-                            Vector3 pos = {x, y, z};
-                            Vector3 draw_pos_bottom = { x - GRID_SIZE / 2, -GRID_SIZE / 2 - 3/2, z - GRID_SIZE / 2};
-                            Vector3 draw_pos_top = { x - GRID_SIZE / 2, GRID_SIZE / 2, z - GRID_SIZE / 2};
-
-                            if (snake_contains(&snake, pos)) {
-                                DrawCubeWires(draw_pos_bottom, 1, 0, 1, SNAKE_COLOR);
-                                DrawCubeWires(draw_pos_top, 1, 0, 1, SNAKE_COLOR);
-                            }
-                        }
-                    }
-                }
-                for (int x = 0; x < GRID_SIZE; x++) {
-                    for (int y = 0; y < GRID_SIZE; y++) {
-                        for (int z = 0; z < GRID_SIZE; z++) {
-                            Vector3 pos = {x, y, z};
-                            Vector3 draw_pos_bottom = { x - GRID_SIZE / 2, -GRID_SIZE / 2 - 3/2, z - GRID_SIZE / 2};
-                            Vector3 draw_pos_top = { x - GRID_SIZE / 2, GRID_SIZE / 2, z - GRID_SIZE / 2};
-
-                            if (vector3_near_eq(fruit, pos)) {
-                                DrawCubeWires(draw_pos_bottom, 1, 0, 1, FRUIT_COLOR);
-                                DrawCubeWires(draw_pos_top, 1, 0, 1, FRUIT_COLOR);
-                            }
-                        }
-                    }
-                }
-                DrawCubeWires(Vector3Zero(), GRID_SIZE, GRID_SIZE, GRID_SIZE, GRID_COLOR);
-            }
-
-            const char *text = TextFormat("Score: %d", score);
-            int font_size = 20;
+            const char *text = "Game Over";
+            int font_size = (width + height) / (strlen(text) * 2);
             int w = MeasureText(text, font_size);
-            DrawText(text, GetScreenWidth() / 2 - w / 2, 10, font_size, WHITE);
+            DrawText(text, (width - w) / 2, 50, font_size, WHITE);
 
-            DrawFPS(10, 10);
+            text = TextFormat("Score: %d", game->score);
+            font_size = (width + height) / (strlen(text) * 3);
+            w = MeasureText(text, font_size);
+            DrawText(text, (width - w) / 2, height / 2, font_size, WHITE);
+        }
+        return;
+    }
+
+    // TODO: better camera controls that don't conflict with snake WASD
+    if (IsKeyDown(KEY_SPACE)) UpdateCamera(&game->camera, CAMERA_ORBITAL);
+
+    Vector3 new_dir = get_keyboard_dir();
+    if (!vector3_near_eq(new_dir, Vector3Zero())) {
+        Vector3 last = last_dir(game->dir_queue, &game->snake);
+        if (!vector3_near_eq(new_dir, last) && !vector3_near_eq(new_dir, Vector3Scale(last, -1))) {
+            da_append(&game->dir_queue, new_dir);
         }
     }
-    CloseWindow();
 
-    printf("Final Score: %d\n", score);
+    game->time += GetFrameTime();
+    if (game->time >= 0.5) {
+        game->time = 0;
+
+        if (game->dir_queue.count > 0) {
+            Vector3 new_dir = dir_queue_pop(&game->dir_queue);
+            game->snake.dir = new_dir;
+        }
+
+        if (!snake_update(&game->snake)) {
+            game->game_over = true;
+            return;
+        }
+        if (vector3_near_eq(snake_head(&game->snake), game->fruit)) {
+            game->score++;
+            snake_grow(&game->snake);
+            do {
+                game->fruit = gen_fruit();
+            } while (snake_contains(&game->snake, game->fruit));
+        }
+    }
+
+    Drawing {
+        ClearBackground(BACKGROUND_COLOR);
+        Mode3D(game->camera) {
+            // Main grid
+            for (int x = 0; x < GRID_SIZE; x++) {
+                for (int y = 0; y < GRID_SIZE; y++) {
+                    for (int z = 0; z < GRID_SIZE; z++) {
+                        Vector3 pos = {x, y, z};
+                        Vector3 draw_pos = Vector3SubtractValue(pos, GRID_SIZE / 2);
+                        //DrawCubeWires(draw_pos, 1, 1, 1, GRID_COLOR);
+
+                        if (vector3_near_eq(pos, game->fruit)) {
+                            DrawCube(draw_pos, 1, 1, 1, FRUIT_COLOR);
+                        } else if (snake_contains(&game->snake, pos)) {
+                            DrawCube(draw_pos, 1, 1, 1, SNAKE_COLOR);
+                        }
+                    }
+                }
+            }
+
+            // """Shadows"""
+            for (int x = 0; x < GRID_SIZE; x++) {
+                for (int y = 0; y < GRID_SIZE; y++) {
+                    for (int z = 0; z < GRID_SIZE; z++) {
+                        Vector3 pos = {x, y, z};
+                        Vector3 draw_pos_bottom = { x - GRID_SIZE / 2, -GRID_SIZE / 2 - 3/2, z - GRID_SIZE / 2};
+                        Vector3 draw_pos_top = { x - GRID_SIZE / 2, GRID_SIZE / 2, z - GRID_SIZE / 2};
+
+                        if (snake_contains(&game->snake, pos)) {
+                            DrawCubeWires(draw_pos_bottom, 1, 0, 1, SNAKE_COLOR);
+                            DrawCubeWires(draw_pos_top, 1, 0, 1, SNAKE_COLOR);
+                        }
+                    }
+                }
+            }
+            for (int x = 0; x < GRID_SIZE; x++) {
+                for (int y = 0; y < GRID_SIZE; y++) {
+                    for (int z = 0; z < GRID_SIZE; z++) {
+                        Vector3 pos = {x, y, z};
+                        Vector3 draw_pos_bottom = { x - GRID_SIZE / 2, -GRID_SIZE / 2 - 3/2, z - GRID_SIZE / 2};
+                        Vector3 draw_pos_top = { x - GRID_SIZE / 2, GRID_SIZE / 2, z - GRID_SIZE / 2};
+
+                        if (vector3_near_eq(game->fruit, pos)) {
+                            DrawCubeWires(draw_pos_bottom, 1, 0, 1, FRUIT_COLOR);
+                            DrawCubeWires(draw_pos_top, 1, 0, 1, FRUIT_COLOR);
+                        }
+                    }
+                }
+            }
+            DrawCubeWires(Vector3Zero(), GRID_SIZE, GRID_SIZE, GRID_SIZE, GRID_COLOR);
+        }
+
+        const char *text = TextFormat("Score: %d", game->score);
+        int font_size = 20;
+        int w = MeasureText(text, font_size);
+        DrawText(text, GetScreenWidth() / 2 - w / 2, 10, font_size, WHITE);
+
+        DrawFPS(10, 10);
+    }
+}
+
+Game game;
+
+int main(void) {
+    game_init(&game);
+
+    InitWindow(640, 480, "3D Snake Game");
+    DisableCursor();
+
+#ifdef PLATFORM_WEB
+    emscripten_set_main_loop_arg((em_arg_callback_func)game_update, &game, 0, true);
+#else
+    while (!WindowShouldClose()) game_update(&game);
+    CloseWindow();
+#endif // PLATFORM_WEB
+
+    printf("Final Score: %d\n", game.score);
     return 0;
 }
