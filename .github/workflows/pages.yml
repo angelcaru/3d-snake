@@ -22,8 +22,13 @@ jobs:
           ./nob -t web
 
               - name: Upload GitHub Pages artifact
-  deploy:
+  upload:
     uses: actions/upload-pages-artifact@v3.0.1
     with:
       path: /build
+
+  deploy:
+    - name: Deploy GitHub Pages site
+    uses: actions/deploy-pages@v4.0.5
+          
           
