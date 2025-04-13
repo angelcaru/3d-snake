@@ -5,19 +5,37 @@
 typedef enum {
     TARGET_LINUX,
     TARGET_WEB,
+    TARGET_WINDOWS,
     COUNT_TARGETS,
 } Target;
+
+const char *target_as_cstr(Target target) {
+    static_assert(COUNT_TARGETS == 3, "Please update after adding a new target");
+    switch (target) {
+        case TARGET_LINUX: return "linux";
+        case TARGET_WINDOWS: return "windows";
+        case TARGET_WEB: return "web";
+        default: UNREACHABLE("invalid target");
+    }
+}
+
+#ifdef _WIN32
+Target default_target = TARGET_WINDOWS;
+#else
+Target default_target = TARGET_LINUX;
+#endif
 
 void usage(FILE *stream, const char *program_name) {
     fprintf(stream, "Usage: %s [OPTIONS]\n", program_name);
     fprintf(stream, "    OPTIONS:\n");
     fprintf(stream, "      -h, --help - Print this help message\n");
     fprintf(stream, "      -r - Run game after building\n");
-    static_assert(COUNT_TARGETS == 2, "Please update usage after adding a new target");
+    static_assert(COUNT_TARGETS == 3, "Please update usage after adding a new target");
     fprintf(stream, "      -t <target> - Build for a specific target. Possible targets include:\n");
     fprintf(stream, "        linux\n");
+    fprintf(stream, "        windows\n");
     fprintf(stream, "        web\n");
-    fprintf(stream, "      If this option is not provided, the default target is `linux`\n");
+    fprintf(stream, "      If this option is not provided, the default target is `%s`\n", target_as_cstr(default_target));
 }
 
 void common_cflags(Cmd *cmd) {
@@ -32,7 +50,7 @@ int main(int argc, char **argv) {
     const char *program_name = nob_shift(argv, argc);
 
     bool run = false;
-    Target target = TARGET_LINUX;
+    Target target = default_target;
     while (argc > 0) {
         const char *arg = shift(argv, argc);
         if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
@@ -44,9 +62,11 @@ int main(int argc, char **argv) {
                 nob_log(ERROR, "-t flag requires an argument");
             }
             const char *target_name = shift(argv, argc);
-            static_assert(COUNT_TARGETS == 2, "Please update the -t flag when adding a new target");
+            static_assert(COUNT_TARGETS == 3, "Please update the -t flag when adding a new target");
             if (strcmp(target_name, "linux") == 0) {
                 target = TARGET_LINUX;
+            } else if (strcmp(target_name, "windows") == 0) {
+                target = TARGET_WINDOWS;
             } else if (strcmp(target_name, "web") == 0) {
                 target = TARGET_WEB;
             } else {
@@ -64,15 +84,28 @@ int main(int argc, char **argv) {
     }
 
     Cmd cmd = {0};
-    static_assert(COUNT_TARGETS == 2, "Please update this `switch` statement when adding a new target");
+    static_assert(COUNT_TARGETS == 3, "Please update this `switch` statement when adding a new target");
     switch (target) {
         case TARGET_LINUX:
+#ifdef _WIN32
+            cmd_append(&cmd, "wsl", "gcc");
+#else
             cmd_append(&cmd, "cc");
+#endif
             common_cflags(&cmd);
             cmd_append(&cmd, "-o", "./build/main");
             cmd_append(&cmd, "./src/main.c");
             cmd_append(&cmd, "-I.", "-I./raylib/");
             cmd_append(&cmd, "-L./raylib/", "-lraylib", "-lm");
+            break;
+        case TARGET_WINDOWS:
+            cmd_append(&cmd, "x86_64-w64-mingw32-gcc");
+            common_cflags(&cmd);
+            cmd_append(&cmd, "-o", "./build/main.exe");
+            cmd_append(&cmd, "./src/main.c");
+            cmd_append(&cmd, "-I.", "-I./raylib/");
+            cmd_append(&cmd, "-L./raylib/", "-lraylib.win", "-lm");
+            cmd_append(&cmd, "-lwinmm", "-lgdi32");
             break;
         case TARGET_WEB:
             cmd_append(&cmd, "emcc");
@@ -88,11 +121,14 @@ int main(int argc, char **argv) {
     }
     if (!cmd_run_sync_and_reset(&cmd)) return 1;
 
-    static_assert(COUNT_TARGETS == 2, "Please update this `switch` statement when adding a new target");
+    static_assert(COUNT_TARGETS == 3, "Please update this `switch` statement when adding a new target");
     if (run) {
         switch (target) {
             case TARGET_LINUX:
                 cmd_append(&cmd, "./build/main");
+                break;
+            case TARGET_WINDOWS:
+                cmd_append(&cmd, "wine", "./build/main.exe");
                 break;
             case TARGET_WEB:
                 cmd_append(&cmd, "emrun", "./build/index.html");
